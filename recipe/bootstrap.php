@@ -247,41 +247,6 @@ task('deploy:success', function () {
     ->once()
     ->setPrivate();
 
-task('deploy:vendors', function () {
-
-    $jsonHash = trim(`cat ./composer.lock | grep '"content-hash"' | sed 's/.*"content-hash": "\\([^"]\\+\\)",/\\1/'`);
-    if (empty($jsonHash)) {
-        throw new \RuntimeException(sprintf("Failed to extract composer.lock lastest hash"));
-    }
-    $vendorRootDirPath = env('shared_path') . '/vendor';
-
-    runCustomized("mkdir -p " . $vendorRootDirPath);
-    $remoteCachedVendorDirPath = $vendorRootDirPath . '/' . $jsonHash;
-    $remoteCachedVendorCompletionMarker = $remoteCachedVendorDirPath . '/upload_complete';
-
-    if (!remoteFileExists($remoteCachedVendorCompletionMarker) || input()->getOption('vendor-force')) {
-        $localCachedVendorDirPath = trim(runLocallyCustomized("readlink -f {{release_path}}/vendor")->getOutput());
-        $jsonHash = basename($localCachedVendorDirPath);
-        if (isVerbose()) {
-            writeln(sprintf('<comment>Rsyncing%s local vendor directory %s to remote host</comment>',
-                input()->getOption('vendor-force') ? ' (forced)' : '',
-                $jsonHash)
-            );
-        }
-
-        rsyncToRemote($localCachedVendorDirPath, $remoteCachedVendorDirPath, "{{release_path}}/.rsync-filter-deploy-vendor");
-        runCustomized('touch ' . $remoteCachedVendorCompletionMarker);
-    } else {
-        if (isVerbose()) {
-            writeln('<comment>Reusing existing vendor directory</comment>');
-        }
-    }
-
-    runCustomized(sprintf("ln -nfs %s {{release_path}}/vendor", $remoteCachedVendorDirPath));
-
-})->desc('Installing vendors')
-    ->setPrivate();
-
 task('check:releases_count', function() {
     $releases = env('releases_list');
     $keep = get('keep_releases');
