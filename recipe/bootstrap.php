@@ -204,6 +204,32 @@ function rsyncToRemote($localDirPath, $remoteDirPath, $mergeFilePath)
     runLocallyCustomized(getRsyncCommand($localDirPath, $destination, $mergeFilePath));
 }
 
+/**
+ * @return string
+ */
+function getRevision()
+{
+    return trim(`git log -n 1 --pretty=format:"%H"`);
+}
+
+/**
+ * @return string
+ */
+function getVersion()
+{
+    return trim(`git describe --tags`);
+}
+
+/**
+ * @return string
+ */
+function getVersionAsSeenByApache()
+{
+    $cmd = sprintf('curl -L -s "http://%s/VERSION?t=%s"', env('application_domain_name'), time());
+    $result = runLocallyCustomized($cmd);
+    return trim($result->getOutput());
+}
+
 task('deploy:display_info', function () {
     writeln(sprintf('Starting deploy of branch <fg=yellow;options=bold>%s</> to the stage <fg=yellow;options=bold>%s</>',
         getLocalCurrentBranch(),
@@ -225,7 +251,7 @@ task('deploy:update_code', function() {
     }
     runCustomized(getRsyncCommand("{{remote_cache_path}}", "{{release_path}}"));
 
-    $revision = trim(`git log -n 1 --pretty=format:"%H"`);
+    $revision = getRevision();
     runCustomized(sprintf("echo %s > {{release_path}}/REVISION", $revision));
 })->desc('Updating code');
 
@@ -292,15 +318,31 @@ task('deploy:clear_apache_cache', function() {
     array_shift($releases);
     $secondToLastReleasePath = '{{deploy_path}}/releases/' . $releases[0];
 
-    # Rename second to last release so that apache can't find it
-    runCustomized(sprintf("mv %s %s_", $secondToLastReleasePath, $secondToLastReleasePath));
+    $expectedVersion = getVersion();
 
-    # Trigger a 404 error so that apache cache is cleared
-    $cmd = sprintf("curl -IL -s http://%s/?t=%s | grep HTTP", env('application_domain_name'), time());
-    runLocallyCustomized($cmd);
+    for ($i = 0; $i < 3; $i++) {
+        writeln(sprintf("Clearing Apache cache... Attempt %d", $i + 1));
+        sleep($i);
+        # Rename second to last release so that apache can't find it
+        runCustomized(sprintf("mv %s %s_", $secondToLastReleasePath, $secondToLastReleasePath));
 
-    # Restore release name
-    runCustomized(sprintf("mv %s_ %s", $secondToLastReleasePath, $secondToLastReleasePath));
+        # Trigger a 404 error so that apache cache is cleared
+        $cmd = sprintf('curl -IL -s "http://%s/VERSION?t=%s" | grep HTTP', env('application_domain_name'), time());
+        $result = runLocallyCustomized($cmd);
+
+        # Restore release name
+        runCustomized(sprintf("mv %s_ %s", $secondToLastReleasePath, $secondToLastReleasePath));
+
+        $versionAsSeenByApache = getVersionAsSeenByApache();
+
+        writeln(sprintf("Local version: %s. Version as seen by apache: %s", $expectedVersion, $versionAsSeenByApache));
+
+        if ($versionAsSeenByApache == $expectedVersion) {
+            writeln("Apache cache successfully cleared !");
+            return;
+        }
+    }
+    writeln("Failed to clear Apache cache");
 });
 
 task('deploy:upload', function () {
