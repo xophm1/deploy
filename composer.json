@@ -2,6 +2,6 @@
     "name": "xophm1/deploy",
     "description": "Tools to help deploy symfony application",
     "require": {
-        "deployer/deployer": "3.3.0"
+        "deployer/deployer": "^6.2"
     }
 }
